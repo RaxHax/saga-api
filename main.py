@@ -67,11 +67,15 @@ async def lifespan(app: FastAPI):
     supabase_key = os.getenv("SUPABASE_KEY")  # Can be anon or service key
 
     if not supabase_url or not supabase_key:
-        logger.error("SUPABASE_URL and SUPABASE_KEY must be set!")
-        raise RuntimeError("Missing Supabase configuration")
-
-    supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
-    logger.info("Supabase service initialized!")
+        logger.warning("SUPABASE_URL and SUPABASE_KEY not set - API will start in degraded mode")
+        supabase_service = None
+    else:
+        try:
+            supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
+            logger.info("Supabase service initialized!")
+        except Exception as exc:
+            logger.error("Failed to initialize Supabase service: %s", exc)
+            supabase_service = None
 
     logger.info("Saga Search API ready!")
 
