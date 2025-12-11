@@ -4,11 +4,16 @@ This guide shows how to embed a lightweight search widget that talks directly to
 
 ## Quick embed (copy/paste)
 
-Paste the following snippet into any HTML page. It renders a transparent search panel, fetches results from the API, and shows thumbnails, descriptions, and similarity scores. Update the `API_BASE` constant if you deploy the API elsewhere.
+Paste the following snippet into any HTML page. It renders a transparent search panel, fetches results from the API, and shows thumbnails, descriptions, and similarity scores. You can override the API URL or add an optional API key by setting `data-api-base` / `data-api-key` on the root `<div>`.
 
 ```html
 <!-- K2 Leitavél - Myndefnisleit Embed (Transparent) -->
-<div id="k2-search-app" class="k2-shell">
+<div
+  id="k2-search-app"
+  class="k2-shell"
+  data-api-base="https://web-production-2d594.up.railway.app"
+  data-api-key=""
+>
   <div class="k2-hero">
     <div class="k2-badge">
       <span class="k2-badge-icon">✦</span>
@@ -32,6 +37,61 @@ Paste the following snippet into any HTML page. It renders a transparent search 
       <span class="k2-pill" data-query="körfuboltaleikur í gangi">Íþróttir</span>
       <span class="k2-pill" data-query="drónaskot af fjöllum">Dróni</span>
       <span class="k2-pill" data-query="andlitsmynd með grunnri dýpt">Andlitsmynd</span>
+    </div>
+  </div>
+
+  <div class="k2-controls">
+    <div class="k2-control-group k2-control-wide">
+      <div class="k2-label">Leitargerð</div>
+      <div class="k2-segmented" role="group" aria-label="Leitargerð">
+        <button class="k2-segment is-active" data-value="combined">Blandað</button>
+        <button class="k2-segment" data-value="visual">Myndræn</button>
+        <button class="k2-segment" data-value="text">Texti</button>
+      </div>
+      <p class="k2-help">Veldu hvort leitin noti myndræna, texta- eða blandaða innslátt.</p>
+    </div>
+
+    <div class="k2-control-grid">
+      <div class="k2-control-group">
+        <label class="k2-label" for="k2-filetype">Skráartegund</label>
+        <select id="k2-filetype" class="k2-select">
+          <option value="">Allt efni</option>
+          <option value="image" selected>Myndir</option>
+          <option value="video">Myndbönd</option>
+        </select>
+      </div>
+
+      <div class="k2-control-group">
+        <label class="k2-label" for="k2-decade">Áratugur</label>
+        <select id="k2-decade" class="k2-select">
+          <option value="">Allir</option>
+          <option value="1900s">1900s</option>
+          <option value="1910s">1910s</option>
+          <option value="1920s">1920s</option>
+          <option value="1930s">1930s</option>
+          <option value="1940s">1940s</option>
+          <option value="1950s">1950s</option>
+          <option value="1960s">1960s</option>
+          <option value="1970s">1970s</option>
+          <option value="1980s">1980s</option>
+          <option value="1990s">1990s</option>
+          <option value="2000s">2000s</option>
+          <option value="2010s">2010s</option>
+          <option value="2020s">2020s</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="k2-control-grid">
+      <div class="k2-control-group">
+        <label class="k2-label" for="k2-limit">Fjöldi niðurstaðna <span id="k2-limit-value" class="k2-value">24</span></label>
+        <input id="k2-limit" class="k2-range" type="range" min="6" max="48" step="2" value="24" />
+      </div>
+
+      <div class="k2-control-group">
+        <label class="k2-label" for="k2-threshold">Lágmarkssamsvörun <span id="k2-threshold-value" class="k2-value">0%</span></label>
+        <input id="k2-threshold" class="k2-range" type="range" min="0" max="1" step="0.05" value="0" />
+      </div>
     </div>
   </div>
 
@@ -323,18 +383,28 @@ Paste the following snippet into any HTML page. It renders a transparent search 
 
 <script>
 (() => {
-  const API_BASE = "https://web-production-2d594.up.railway.app";
+  const shell = document.getElementById("k2-search-app");
+  const API_BASE = shell?.dataset.apiBase || "https://web-production-2d594.up.railway.app";
+  const API_KEY = shell?.dataset.apiKey || "";
   const input = document.getElementById("k2-input");
   const button = document.getElementById("k2-button");
   const grid = document.getElementById("k2-grid");
   const status = document.getElementById("k2-status");
   const pills = document.querySelectorAll(".k2-pill");
+  const segments = document.querySelectorAll(".k2-segment");
+  const fileType = document.getElementById("k2-filetype");
+  const decade = document.getElementById("k2-decade");
+  const limit = document.getElementById("k2-limit");
+  const limitValue = document.getElementById("k2-limit-value");
+  const threshold = document.getElementById("k2-threshold");
+  const thresholdValue = document.getElementById("k2-threshold-value");
 
   const params = {
     search_type: "combined",
-    limit: 24,
-    threshold: 0,
-    file_type: "image"
+    limit: Number(limit.value),
+    threshold: Number(threshold.value),
+    file_type: "image",
+    decade: ""
   };
 
   function setStatus(msg, isError = false) {
@@ -404,6 +474,21 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     });
   }
 
+  function buildStatusSuffix() {
+    const bits = [];
+    if (params.file_type) bits.push(params.file_type === "video" ? "Myndbönd" : "Myndir");
+    if (params.decade) bits.push(params.decade);
+    bits.push(`${params.limit} max`);
+    if (params.threshold > 0) bits.push(`> ${(params.threshold * 100).toFixed(0)}%`);
+    return bits.length ? ` (${bits.join(" • ")})` : "";
+  }
+
+  function setActiveSegment(value) {
+    segments.forEach(btn => {
+      btn.classList.toggle("is-active", btn.dataset.value === value);
+    });
+  }
+
   async function search() {
     const q = input.value.trim();
     if (!q) { setStatus("Skrifaðu leit til að byrja."); renderEmpty(); return; }
@@ -416,27 +501,43 @@ Paste the following snippet into any HTML page. It renders a transparent search 
         query: q,
         search_type: params.search_type,
         limit: String(params.limit),
-        threshold: String(params.threshold),
-        file_type: params.file_type
+        threshold: String(params.threshold)
       });
 
-      const res = await fetch(`${API_BASE}/search?${searchParams.toString()}`);
+      if (params.file_type) searchParams.set("file_type", params.file_type);
+      if (params.decade) searchParams.set("decade", params.decade);
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const headers = {};
+      if (API_KEY) headers['X-API-Key'] = API_KEY;
+
+      const res = await fetch(`${API_BASE}/search?${searchParams.toString()}`, { headers });
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        const err = new Error(`HTTP ${res.status}: ${errBody}`);
+        err.status = res.status;
+        throw err;
+      }
       const data = await res.json();
 
-      if (!data.results || data.results.length === 0) {
+      const items = data.results || data.items || [];
+      if (!items.length) {
         renderEmpty();
-        setStatus("Engar niðurstöður fundust.");
+        setStatus("Engar niðurstöður fundust." + buildStatusSuffix());
         return;
       }
 
-      renderItems(data.results);
-      setStatus(`Fann ${data.results.length} niðurstöður.`);
+      renderItems(items);
+      const timing = typeof data.processing_time_ms === "number" ? ` á ${data.processing_time_ms.toFixed(1)} ms` : "";
+      setStatus(`Fann ${items.length} niðurstöður${timing}${buildStatusSuffix()}`);
     } catch (err) {
       console.error(err);
       renderEmpty();
-      setStatus("Leit tókst ekki. Athugaðu API slóð.", true);
+      const needsKey = err?.status === 401;
+      const msg = needsKey
+        ? "Leit tókst ekki. Bættu við X-API-Key haus eða stilltu data-api-key á k2-skurnu."
+        : "Leit tókst ekki. Athugaðu API slóð eða lykil.";
+      setStatus(msg, true);
     }
   }
 
@@ -447,6 +548,32 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     input.focus();
   }));
 
+  segments.forEach(btn => {
+    btn.addEventListener("click", () => {
+      params.search_type = btn.dataset.value;
+      setActiveSegment(params.search_type);
+    });
+  });
+
+  fileType.addEventListener("change", () => {
+    params.file_type = fileType.value;
+  });
+
+  decade.addEventListener("change", () => {
+    params.decade = decade.value;
+  });
+
+  limit.addEventListener("input", () => {
+    params.limit = Number(limit.value);
+    limitValue.textContent = params.limit;
+  });
+
+  threshold.addEventListener("input", () => {
+    params.threshold = Number(threshold.value);
+    thresholdValue.textContent = `${(params.threshold * 100).toFixed(0)}%`;
+  });
+
+  thresholdValue.textContent = `${(params.threshold * 100).toFixed(0)}%`;
   renderEmpty();
 })();
 </script>
@@ -454,7 +581,7 @@ Paste the following snippet into any HTML page. It renders a transparent search 
 
 ### Notes
 - The widget reads thumbnails from `thumbnail_url` (falling back to `storage_url`). Ensure your Supabase bucket exposes public URLs or adjust `_get_public_url` in `services/supabase_service.py`.
-- The API defaults to `search_type=combined`, `limit=24`, and `file_type=image` for the embed. Adjust those defaults in the `params` object.
+- The API defaults to `search_type=combined`, `limit=24`, and `file_type=image` for the embed. Adjust those defaults in the `params` object or via the UI controls (file type, decade, limit, threshold, search type segment).
 - If you have CORS restrictions, set the `CORS_ORIGINS` environment variable when deploying the API (see `main.py`).
 
 ## API compatibility
