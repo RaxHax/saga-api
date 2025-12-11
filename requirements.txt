@@ -1,0 +1,24 @@
+# FastAPI and server
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Supabase
+supabase>=2.0.0
+
+# PyTorch (CPU version for Railway - smaller image)
+# For GPU support, use: torch --index-url https://download.pytorch.org/whl/cu118
+torch>=2.0.0
+torchvision>=0.15.0
+
+# CLIP models
+sentence-transformers>=2.2.0
+open-clip-torch>=2.20.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Utilities
+numpy>=1.24.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
