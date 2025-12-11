@@ -182,8 +182,16 @@ async def search_by_text(
     - `text`: Search against text embeddings from descriptions/metadata
     - `combined`: Search against combined embeddings (recommended, default)
     """
-    if not embedding_service or not supabase_service:
-        raise HTTPException(status_code=503, detail="Services not initialized")
+    if not embedding_service:
+        raise HTTPException(
+            status_code=503,
+            detail="Embedding service not initialized. Check CLIP model configuration."
+        )
+    if not supabase_service:
+        raise HTTPException(
+            status_code=503,
+            detail="Database service not initialized. Check SUPABASE_URL and SUPABASE_KEY environment variables."
+        )
 
     # Validate search type
     if request.search_type not in ["visual", "text", "combined"]:
@@ -195,17 +203,31 @@ async def search_by_text(
     logger.info(f"Text search: '{request.query}' (type={request.search_type}, limit={request.limit})")
 
     # Encode the query text
-    query_embedding = embedding_service.encode_text(request.query)
+    try:
+        query_embedding = embedding_service.encode_text(request.query)
+    except Exception as e:
+        logger.error(f"Embedding encode failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to encode query text: {str(e)}"
+        )
 
     # Search in Supabase
-    results = await supabase_service.search_by_embedding(
-        embedding=query_embedding,
-        search_type=request.search_type,
-        limit=request.limit,
-        threshold=request.threshold,
-        file_type=request.file_type,
-        decade=request.decade
-    )
+    try:
+        results = await supabase_service.search_by_embedding(
+            embedding=query_embedding,
+            search_type=request.search_type,
+            limit=request.limit,
+            threshold=request.threshold,
+            file_type=request.file_type,
+            decade=request.decade
+        )
+    except Exception as e:
+        logger.error(f"Supabase search failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database search failed: {str(e)}"
+        )
 
     return TextSearchResponse(
         query=request.query,
@@ -257,8 +279,16 @@ async def search_by_image(
 
     **Supported formats:** JPEG, PNG, WebP, GIF
     """
-    if not embedding_service or not supabase_service:
-        raise HTTPException(status_code=503, detail="Services not initialized")
+    if not embedding_service:
+        raise HTTPException(
+            status_code=503,
+            detail="Embedding service not initialized. Check CLIP model configuration."
+        )
+    if not supabase_service:
+        raise HTTPException(
+            status_code=503,
+            detail="Database service not initialized. Check SUPABASE_URL and SUPABASE_KEY environment variables."
+        )
 
     # Validate search type
     if search_type not in ["visual", "text", "combined"]:
@@ -284,17 +314,27 @@ async def search_by_image(
         query_embedding = embedding_service.encode_image(io.BytesIO(image_bytes))
     except Exception as e:
         logger.error(f"Failed to encode image: {e}")
-        raise HTTPException(status_code=400, detail=f"Failed to process image: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to encode image: {str(e)}"
+        )
 
     # Search in Supabase
-    results = await supabase_service.search_by_embedding(
-        embedding=query_embedding,
-        search_type=search_type,
-        limit=limit,
-        threshold=threshold,
-        file_type=file_type,
-        decade=decade
-    )
+    try:
+        results = await supabase_service.search_by_embedding(
+            embedding=query_embedding,
+            search_type=search_type,
+            limit=limit,
+            threshold=threshold,
+            file_type=file_type,
+            decade=decade
+        )
+    except Exception as e:
+        logger.error(f"Supabase search failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database search failed: {str(e)}"
+        )
 
     return ImageSearchResponse(
         search_type=search_type,

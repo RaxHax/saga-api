@@ -248,6 +248,163 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     background: rgba(255, 255, 255, 0.03);
   }
 
+  /* Controls Section */
+  .k2-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 24px;
+    background: var(--k2-bg-card);
+    border: 1px solid var(--k2-border);
+    border-radius: var(--k2-radius);
+    margin-bottom: 20px;
+  }
+
+  .k2-control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .k2-control-wide {
+    grid-column: 1 / -1;
+  }
+
+  .k2-control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .k2-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--k2-text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .k2-value {
+    color: var(--k2-accent);
+    font-weight: 600;
+  }
+
+  .k2-help {
+    font-size: 12px;
+    color: var(--k2-text-muted);
+    margin: 0;
+  }
+
+  /* Segmented Control */
+  .k2-segmented {
+    display: flex;
+    gap: 4px;
+    background: var(--k2-bg-input);
+    padding: 4px;
+    border-radius: var(--k2-radius);
+    border: 1px solid var(--k2-border);
+  }
+
+  .k2-segment {
+    flex: 1;
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    color: var(--k2-text-muted);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .k2-segment:hover {
+    color: var(--k2-text);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .k2-segment.is-active {
+    background: var(--k2-accent);
+    color: white;
+    box-shadow: 0 2px 8px var(--k2-accent-glow);
+  }
+
+  /* Select Dropdown */
+  .k2-select {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--k2-bg-input);
+    border: 1px solid var(--k2-border);
+    border-radius: var(--k2-radius);
+    color: var(--k2-text);
+    font-family: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+  }
+
+  .k2-select:hover {
+    border-color: var(--k2-border-hover);
+  }
+
+  .k2-select:focus {
+    outline: none;
+    border-color: var(--k2-accent);
+    box-shadow: 0 0 0 3px var(--k2-accent-glow);
+  }
+
+  .k2-select option {
+    background: #1a1a2e;
+    color: var(--k2-text);
+  }
+
+  /* Range Slider */
+  .k2-range {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--k2-bg-input);
+    border: 1px solid var(--k2-border);
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .k2-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--k2-accent);
+    border: 2px solid white;
+    cursor: pointer;
+    box-shadow: 0 2px 8px var(--k2-accent-glow);
+    transition: transform 0.2s ease;
+  }
+
+  .k2-range::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+  }
+
+  .k2-range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--k2-accent);
+    border: 2px solid white;
+    cursor: pointer;
+    box-shadow: 0 2px 8px var(--k2-accent-glow);
+  }
+
+  .k2-range:focus {
+    outline: none;
+  }
+
   .k2-status {
     min-height: 20px;
     font-size: 13px;
@@ -377,6 +534,16 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     }
     .k2-title {
       font-size: 26px;
+    }
+    .k2-control-grid {
+      grid-template-columns: 1fr;
+    }
+    .k2-controls {
+      padding: 16px;
+    }
+    .k2-segment {
+      padding: 8px 12px;
+      font-size: 12px;
     }
   }
 </style>
@@ -533,10 +700,21 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     } catch (err) {
       console.error(err);
       renderEmpty();
-      const needsKey = err?.status === 401;
-      const msg = needsKey
-        ? "Leit tókst ekki. Bættu við X-API-Key haus eða stilltu data-api-key á k2-skurnu."
-        : "Leit tókst ekki. Athugaðu API slóð eða lykil.";
+
+      let msg;
+      if (err?.status === 401) {
+        msg = "Aðgangur bannaður. Bættu við API lykli (data-api-key).";
+      } else if (err?.status === 503) {
+        msg = "Þjónusta ekki tilbúin. Embedding þjónusta er að ræsa, reyndu aftur.";
+      } else if (err?.status === 500) {
+        msg = "Villa í þjóni. Athugaðu server log til að sjá nánar.";
+      } else if (err?.status === 400) {
+        msg = "Ógild fyrirspurn. Athugaðu leitarskilyrði.";
+      } else if (err?.name === "TypeError" && err?.message?.includes("fetch")) {
+        msg = "Tenging mistókst. Athugaðu API slóð og netsamband.";
+      } else {
+        msg = `Leit mistókst: ${err?.message || "Óþekkt villa"}`;
+      }
       setStatus(msg, true);
     }
   }
