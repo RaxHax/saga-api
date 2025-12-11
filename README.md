@@ -7,8 +7,8 @@ A FastAPI service for semantic image search using multilingual CLIP embeddings. 
 - **Text Search**: Search images using natural language queries in 50+ languages
 - **Image Search**: Find visually similar images by uploading a reference image
 - **Configurable Search Types**: Search against visual, text, or combined embeddings
-- **API Key Protection**: Secure your API with a simple API key
 - **Pre-loaded Model**: CLIP model loads at startup for fast inference
+- **Open by Default**: Public endpoints with no API key required
 
 ## Quick Start
 
@@ -31,7 +31,6 @@ Set these in Railway's Variables tab:
 |----------|----------|-------------|
 | `SUPABASE_URL` | Yes | Your Supabase project URL |
 | `SUPABASE_KEY` | Yes | Supabase anon or service key |
-| `API_KEY` | Yes | Secret key to protect your API |
 | `CLIP_MODEL` | No | Model to use (default: `clip-ViT-B-32-multilingual-v1`) |
 | `SUPABASE_BUCKET` | No | Storage bucket name (default: `media-files`) |
 
@@ -44,12 +43,10 @@ curl https://your-app.railway.app/health
 # Text search
 curl -X POST https://your-app.railway.app/search \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: your-api-key" \
   -d '{"query": "sunset over mountains", "limit": 10}'
 
 # Image search
 curl -X POST https://your-app.railway.app/search/image \
-  -H "X-API-Key: your-api-key" \
   -F "image=@photo.jpg" \
   -F "limit=10"
 ```
@@ -61,9 +58,6 @@ Health check endpoint (no auth required).
 
 ### `POST /search`
 Search by text query.
-
-**Headers:**
-- `X-API-Key`: Your API key
 
 **Body:**
 ```json
@@ -85,9 +79,6 @@ Same as POST but with query parameters:
 
 ### `POST /search/image`
 Search by uploading an image.
-
-**Headers:**
-- `X-API-Key`: Your API key
 
 **Form Data:**
 - `image`: Image file (JPEG, PNG, WebP, GIF)
@@ -203,10 +194,6 @@ See the main project's `resources/schema.sql` for the complete schema.
 - Verify embeddings exist in your database
 - Check that `search_type` matches your indexed embeddings
 - Lower the `threshold` value
-
-### 401 Unauthorized
-- Include `X-API-Key` header with your API key
-- Verify `API_KEY` environment variable is set
 
 ### Connection to Supabase fails
 - Verify `SUPABASE_URL` and `SUPABASE_KEY` are correct

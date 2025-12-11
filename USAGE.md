@@ -1,8 +1,6 @@
 # Usage Guide: Embeddable Semantic Search Widget
 
-This guide shows how to embed a lightweight search widget that talks directly to this API deployment (`https://web-production-2d594.up.railway.app`). The widget uses the public `/search` endpoint and mirrors the Icelandic UI from the provided template while mapping fields to the API's response schema.
-
-> The API can be secured with an `X-API-Key` header. If your deployment requires it, add the header in the `fetch` call as shown below.
+This guide shows how to embed a lightweight search widget that talks directly to this API deployment (`https://web-production-2d594.up.railway.app`). The widget uses the public `/search` endpoint and mirrors the Icelandic UI from the provided template while mapping fields to the API's response schema. The API is now open by default—no key is required.
 
 ## Quick embed (copy/paste)
 
@@ -422,12 +420,7 @@ Paste the following snippet into any HTML page. It renders a transparent search 
         file_type: params.file_type
       });
 
-      const res = await fetch(`${API_BASE}/search?${searchParams.toString()}`, {
-        headers: {
-          // Uncomment and set if your deployment requires a key:
-          // 'X-API-Key': 'your-api-key'
-        }
-      });
+      const res = await fetch(`${API_BASE}/search?${searchParams.toString()}`);
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -443,7 +436,7 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     } catch (err) {
       console.error(err);
       renderEmpty();
-      setStatus("Leit tókst ekki. Athugaðu API slóð eða lykil.", true);
+      setStatus("Leit tókst ekki. Athugaðu API slóð.", true);
     }
   }
 

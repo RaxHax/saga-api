@@ -10,8 +10,7 @@ import logging
 from typing import Optional, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Query, UploadFile, File, Security
-from fastapi.security import APIKeyHeader
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
@@ -26,25 +25,6 @@ logger = logging.getLogger(__name__)
 # Global services (initialized at startup)
 embedding_service: Optional[EmbeddingService] = None
 supabase_service: Optional[SupabaseSearchService] = None
-
-# API Key security
-API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-
-async def verify_api_key(api_key: str = Security(API_KEY_HEADER)) -> str:
-    """Verify the API key from request header."""
-    expected_key = os.getenv("API_KEY")
-    if not expected_key:
-        logger.warning("API_KEY not set in environment - API is unprotected!")
-        return "no-key-required"
-
-    if not api_key or api_key != expected_key:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or missing API key. Provide X-API-Key header."
-        )
-    return api_key
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -189,8 +169,7 @@ async def health_check():
 
 @app.post("/search", response_model=TextSearchResponse, tags=["Search"])
 async def search_by_text(
-    request: TextSearchRequest,
-    api_key: str = Depends(verify_api_key)
+    request: TextSearchRequest
 ):
     """
     Search for images using a text query.
@@ -243,8 +222,7 @@ async def search_by_text_get(
     limit: int = Query(default=20, ge=1, le=100, description="Max results"),
     threshold: float = Query(default=0.0, ge=0.0, le=1.0, description="Minimum similarity"),
     file_type: Optional[str] = Query(default=None, description="Filter: 'image' or 'video'"),
-    decade: Optional[str] = Query(default=None, description="Filter by decade"),
-    api_key: str = Depends(verify_api_key)
+    decade: Optional[str] = Query(default=None, description="Filter by decade")
 ):
     """
     Search for images using a text query (GET method).
@@ -259,7 +237,7 @@ async def search_by_text_get(
         file_type=file_type,
         decade=decade
     )
-    return await search_by_text(request, api_key)
+    return await search_by_text(request)
 
 
 @app.post("/search/image", response_model=ImageSearchResponse, tags=["Search"])
@@ -269,8 +247,7 @@ async def search_by_image(
     limit: int = Query(default=20, ge=1, le=100, description="Max results"),
     threshold: float = Query(default=0.0, ge=0.0, le=1.0, description="Minimum similarity"),
     file_type: Optional[str] = Query(default=None, description="Filter: 'image' or 'video'"),
-    decade: Optional[str] = Query(default=None, description="Filter by decade"),
-    api_key: str = Depends(verify_api_key)
+    decade: Optional[str] = Query(default=None, description="Filter by decade")
 ):
     """
     Search for similar images using an uploaded image.
@@ -327,7 +304,7 @@ async def search_by_image(
 
 
 @app.get("/models", tags=["Info"])
-async def list_models(api_key: str = Depends(verify_api_key)):
+async def list_models():
     """List available CLIP models and current model info."""
     return {
         "current_model": embedding_service.model_name if embedding_service else None,
