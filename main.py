@@ -18,6 +18,7 @@ import uvicorn
 
 from services.embedding_service import EmbeddingService
 from services.supabase_service import SupabaseSearchService
+from services.translation_service import TranslationService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 # Global services (initialized at startup)
 embedding_service: Optional[EmbeddingService] = None
 supabase_service: Optional[SupabaseSearchService] = None
+translation_service: Optional[TranslationService] = None
 
 # API Key security
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -49,7 +51,7 @@ async def verify_api_key(api_key: str = Security(API_KEY_HEADER)) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
-    global embedding_service, supabase_service
+    global embedding_service, supabase_service, translation_service
 
     # Startup: Load model and initialize services
     logger.info("Starting up Saga Search API...")
@@ -72,6 +74,14 @@ async def lifespan(app: FastAPI):
 
     supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
     logger.info("Supabase service initialized!")
+
+    # Initialize translation service (for Icelandic to English translation)
+    google_translate_key = os.getenv("GOOGLE_TRANSLATE_API_KEY")
+    translation_service = TranslationService(api_key=google_translate_key)
+    if translation_service.is_available:
+        logger.info("Translation service initialized!")
+    else:
+        logger.warning("Translation service not available - GOOGLE_TRANSLATE_API_KEY not set")
 
     logger.info("Saga Search API ready!")
 
@@ -134,11 +144,16 @@ class TextSearchRequest(BaseModel):
     threshold: float = Field(default=0.0, ge=0.0, le=1.0, description="Minimum similarity threshold")
     file_type: Optional[str] = Field(default=None, description="Filter by file type: 'image' or 'video'")
     decade: Optional[str] = Field(default=None, description="Filter by decade (e.g., '1950s')")
+    translate: bool = Field(
+        default=False,
+        description="Translate query from Icelandic to English before CLIP encoding (improves visual search)"
+    )
 
 
 class TextSearchResponse(BaseModel):
     """Response for text search."""
     query: str
+    translated_query: Optional[str] = None
     search_type: str
     results: List[SearchResult]
     count: int
@@ -157,6 +172,7 @@ class HealthResponse(BaseModel):
     model_loaded: bool
     model_name: str
     supabase_connected: bool
+    translation_available: bool
 
 
 # --- Endpoints ---
@@ -179,7 +195,8 @@ async def health_check():
         status="healthy",
         model_loaded=embedding_service is not None and embedding_service.model is not None,
         model_name=embedding_service.model_name if embedding_service else "not loaded",
-        supabase_connected=supabase_service is not None
+        supabase_connected=supabase_service is not None,
+        translation_available=translation_service is not None and translation_service.is_available
     )
 
 
@@ -209,10 +226,23 @@ async def search_by_text(
             detail="search_type must be 'visual', 'text', or 'combined'"
         )
 
-    logger.info(f"Text search: '{request.query}' (type={request.search_type}, limit={request.limit})")
+    # Handle translation (Icelandic to English) for improved visual search
+    query_for_embedding = request.query
+    translated_query = None
 
-    # Encode the query text
-    query_embedding = embedding_service.encode_text(request.query)
+    if request.translate:
+        if translation_service and translation_service.is_available:
+            translated_query = translation_service.translate_icelandic_to_english(request.query)
+            query_for_embedding = translated_query
+            logger.info(f"Text search: '{request.query}' -> translated to '{translated_query}' (type={request.search_type}, limit={request.limit})")
+        else:
+            logger.warning(f"Translation requested but service not available. Using original query.")
+            logger.info(f"Text search: '{request.query}' (type={request.search_type}, limit={request.limit})")
+    else:
+        logger.info(f"Text search: '{request.query}' (type={request.search_type}, limit={request.limit})")
+
+    # Encode the query text (using translated query if translation was requested)
+    query_embedding = embedding_service.encode_text(query_for_embedding)
 
     # Search in Supabase
     results = await supabase_service.search_by_embedding(
@@ -226,6 +256,7 @@ async def search_by_text(
 
     return TextSearchResponse(
         query=request.query,
+        translated_query=translated_query,
         search_type=request.search_type,
         results=results,
         count=len(results)
@@ -240,6 +271,7 @@ async def search_by_text_get(
     threshold: float = Query(default=0.0, ge=0.0, le=1.0, description="Minimum similarity"),
     file_type: Optional[str] = Query(default=None, description="Filter: 'image' or 'video'"),
     decade: Optional[str] = Query(default=None, description="Filter by decade"),
+    translate: bool = Query(default=False, description="Translate Icelandic query to English before CLIP encoding"),
     api_key: str = Depends(verify_api_key)
 ):
     """
@@ -253,7 +285,8 @@ async def search_by_text_get(
         limit=limit,
         threshold=threshold,
         file_type=file_type,
-        decade=decade
+        decade=decade,
+        translate=translate
     )
     return await search_by_text(request, api_key)
 
