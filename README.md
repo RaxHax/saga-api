@@ -173,6 +173,10 @@ Railway will automatically:
 - Set the `PORT` environment variable
 - Provide HTTPS with a custom domain
 
+## Embedding the search UI
+
+If you want to drop a lightweight, read-only search widget into another site, copy the embed snippet in [`USAGE.md`](USAGE.md). It talks directly to the `GET /search` endpoint using the same parameters as the API examples above and defaults to the deployed instance at `https://web-production-2d594.up.railway.app`.
+
 ### Recommended Railway Settings
 
 - **Instance Type**: Starter or Pro (model needs ~1GB RAM)
