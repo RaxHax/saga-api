@@ -7,7 +7,7 @@ Designed for Railway deployment.
 import os
 import io
 import logging
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File
@@ -28,6 +28,34 @@ supabase_service: Optional[SupabaseSearchService] = None
 _supabase_init_attempted: bool = False
 
 
+SUPABASE_KEY_ENV_VARS = [
+    "SUPABASE_KEY",  # existing default
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_API_KEY",
+    "SUPABASE_ANON_KEY",
+]
+
+
+def _get_supabase_env() -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return Supabase URL and key using common env var names.
+
+    Returns:
+        tuple: (supabase_url, supabase_key, key_env_var_used)
+    """
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = None
+    key_source = None
+
+    for env_var in SUPABASE_KEY_ENV_VARS:
+        value = os.getenv(env_var)
+        if value:
+            supabase_key = value
+            key_source = env_var
+            break
+
+    return supabase_url, supabase_key, key_source
+
+
 def get_supabase_service() -> Optional[SupabaseSearchService]:
     """
     Get or lazily initialize the Supabase service.
@@ -41,12 +69,14 @@ def get_supabase_service() -> Optional[SupabaseSearchService]:
         return supabase_service
 
     # Try to initialize if we haven't already or if env vars might now be available
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_KEY")
+    supabase_url, supabase_key, key_source = _get_supabase_env()
 
     if supabase_url and supabase_key:
         try:
-            logger.info("Lazy-initializing Supabase service...")
+            logger.info(
+                "Lazy-initializing Supabase service using %s...",
+                key_source,
+            )
             supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
             logger.info("Supabase service initialized successfully via lazy init!")
             return supabase_service
@@ -61,7 +91,11 @@ def get_supabase_service() -> Optional[SupabaseSearchService]:
             if not supabase_url:
                 missing.append("SUPABASE_URL")
             if not supabase_key:
-                missing.append("SUPABASE_KEY")
+                missing.append(
+                    " or ".join(
+                        [SUPABASE_KEY_ENV_VARS[0], "fallbacks: " + ", ".join(SUPABASE_KEY_ENV_VARS[1:])]
+                    )
+                )
             logger.warning(
                 "Cannot initialize Supabase service. Missing environment variables: %s. "
                 "Hint: Ensure these are set in your Railway service variables and redeploy.",
@@ -86,14 +120,13 @@ async def lifespan(app: FastAPI):
     logger.info("CLIP model loaded successfully!")
 
     # Initialize Supabase service
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_KEY")  # Can be anon or service key
+    supabase_url, supabase_key, key_source = _get_supabase_env()
 
     # Log environment variable status for debugging
     logger.info(
-        "Environment check - SUPABASE_URL: %s, SUPABASE_KEY: %s",
+        "Environment check - SUPABASE_URL: %s, Supabase key source: %s",
         "set" if supabase_url else "NOT SET",
-        "set" if supabase_key else "NOT SET"
+        key_source if supabase_key else "NOT SET",
     )
 
     if not supabase_url or not supabase_key:
@@ -221,8 +254,9 @@ async def root():
 async def health_check():
     """Health check endpoint with detailed service status."""
     # Check if env vars are set (without revealing values)
-    supabase_url_set = bool(os.getenv("SUPABASE_URL"))
-    supabase_key_set = bool(os.getenv("SUPABASE_KEY"))
+    supabase_url, supabase_key, key_source = _get_supabase_env()
+    supabase_url_set = bool(supabase_url)
+    supabase_key_set = bool(supabase_key)
 
     # Try to get or initialize Supabase service (enables lazy init on health check)
     db_service = get_supabase_service()
