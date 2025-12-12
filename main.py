@@ -263,7 +263,7 @@ async def root():
 async def health_check():
     """Health check endpoint with detailed service status."""
     # Check if env vars are set (without revealing values)
-    supabase_url, supabase_key, key_source = _get_supabase_env()
+    supabase_url, supabase_key, _key_source, _key_is_default, _url_source = _get_supabase_env()
     supabase_url_set = bool(supabase_url)
     supabase_key_set = bool(supabase_key)
 
