@@ -17,6 +17,7 @@ import uvicorn
 
 from services.embedding_service import EmbeddingService
 from services.supabase_service import SupabaseSearchService
+from services.translation_service import get_translation_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -213,18 +214,24 @@ class TextSearchRequest(BaseModel):
     query: str = Field(..., description="Search query text", min_length=1)
     search_type: str = Field(
         default="combined",
-        description="Embedding type to search: 'visual', 'text', or 'combined'"
+        description="Embedding type to search: 'visual', 'text', 'combined', or 'hybrid' (70% visual, 30% text)"
     )
     limit: int = Field(default=20, ge=1, le=100, description="Max results to return")
     threshold: float = Field(default=0.0, ge=0.0, le=1.0, description="Minimum similarity threshold")
     file_type: Optional[str] = Field(default=None, description="Filter by file type: 'image' or 'video'")
     decade: Optional[str] = Field(default=None, description="Filter by decade (e.g., '1950s')")
+    ai_enhance: bool = Field(
+        default=False,
+        description="When enabled, translates Icelandic query to English for visual search (improves results for non-English queries)"
+    )
 
 
 class TextSearchResponse(BaseModel):
     """Response for text search."""
     query: str
+    translated_query: Optional[str] = None
     search_type: str
+    ai_enhance: bool = False
     results: List[SearchResult]
     count: int
 
@@ -294,6 +301,12 @@ async def search_by_text(
     - `visual`: Search against image embeddings (best for visual descriptions)
     - `text`: Search against text embeddings from descriptions/metadata
     - `combined`: Search against combined embeddings (recommended, default)
+    - `hybrid`: 70% visual + 30% text weighted search
+
+    **AI Enhance:**
+    When `ai_enhance=true`, the query is translated from Icelandic to English
+    for the visual embedding search, which can improve results for non-English queries.
+    The text search component (in hybrid mode) uses the original Icelandic query.
     """
     if not embedding_service:
         raise HTTPException(
@@ -310,17 +323,32 @@ async def search_by_text(
         )
 
     # Validate search type
-    if request.search_type not in ["visual", "text", "combined"]:
+    valid_search_types = ["visual", "text", "combined", "hybrid"]
+    if request.search_type not in valid_search_types:
         raise HTTPException(
             status_code=400,
-            detail="search_type must be 'visual', 'text', or 'combined'"
+            detail=f"search_type must be one of: {', '.join(valid_search_types)}"
         )
 
-    logger.info(f"Text search: '{request.query}' (type={request.search_type}, limit={request.limit})")
+    logger.info(f"Text search: '{request.query}' (type={request.search_type}, limit={request.limit}, ai_enhance={request.ai_enhance})")
+
+    # Handle AI Enhance translation
+    translated_query = None
+    query_for_embedding = request.query
+
+    if request.ai_enhance:
+        # Translate Icelandic query to English for visual search
+        translation_svc = get_translation_service()
+        translated_query = await translation_svc.translate_to_english(request.query)
+
+        # Use translated query for visual embedding (but keep original for text search in hybrid)
+        if request.search_type in ["visual", "combined", "hybrid"]:
+            query_for_embedding = translated_query
+            logger.info(f"AI Enhance: Using translated query for embedding: '{translated_query}'")
 
     # Encode the query text
     try:
-        query_embedding = embedding_service.encode_text(request.query)
+        query_embedding = embedding_service.encode_text(query_for_embedding)
     except Exception as e:
         logger.error(f"Embedding encode failed: {e}")
         raise HTTPException(
@@ -330,14 +358,29 @@ async def search_by_text(
 
     # Search in Supabase
     try:
-        results = await db_service.search_by_embedding(
-            embedding=query_embedding,
-            search_type=request.search_type,
-            limit=request.limit,
-            threshold=request.threshold,
-            file_type=request.file_type,
-            decade=request.decade
-        )
+        if request.search_type == "hybrid":
+            # Use hybrid search with 70% visual, 30% text weights
+            # For hybrid, use original Icelandic query for text search component
+            results = await db_service.hybrid_search(
+                embedding=query_embedding,
+                text_query=request.query,  # Original query for text matching
+                search_type="visual",  # Use visual embeddings for the vector part
+                limit=request.limit,
+                threshold=request.threshold,
+                vector_weight=0.7,
+                text_weight=0.3,
+                file_type=request.file_type,
+                decade=request.decade
+            )
+        else:
+            results = await db_service.search_by_embedding(
+                embedding=query_embedding,
+                search_type=request.search_type,
+                limit=request.limit,
+                threshold=request.threshold,
+                file_type=request.file_type,
+                decade=request.decade
+            )
     except Exception as e:
         logger.error(f"Supabase search failed: {e}")
         raise HTTPException(
@@ -347,7 +390,9 @@ async def search_by_text(
 
     return TextSearchResponse(
         query=request.query,
+        translated_query=translated_query if request.ai_enhance else None,
         search_type=request.search_type,
+        ai_enhance=request.ai_enhance,
         results=results,
         count=len(results)
     )
@@ -356,11 +401,12 @@ async def search_by_text(
 @app.get("/search", response_model=TextSearchResponse, tags=["Search"])
 async def search_by_text_get(
     query: str = Query(..., description="Search query text", min_length=1),
-    search_type: str = Query(default="combined", description="Embedding type: 'visual', 'text', or 'combined'"),
+    search_type: str = Query(default="combined", description="Embedding type: 'visual', 'text', 'combined', or 'hybrid'"),
     limit: int = Query(default=20, ge=1, le=100, description="Max results"),
     threshold: float = Query(default=0.0, ge=0.0, le=1.0, description="Minimum similarity"),
     file_type: Optional[str] = Query(default=None, description="Filter: 'image' or 'video'"),
-    decade: Optional[str] = Query(default=None, description="Filter by decade")
+    decade: Optional[str] = Query(default=None, description="Filter by decade"),
+    ai_enhance: bool = Query(default=False, description="Translate Icelandic query to English for visual search")
 ):
     """
     Search for images using a text query (GET method).
@@ -373,7 +419,8 @@ async def search_by_text_get(
         limit=limit,
         threshold=threshold,
         file_type=file_type,
-        decade=decade
+        decade=decade,
+        ai_enhance=ai_enhance
     )
     return await search_by_text(request)
 

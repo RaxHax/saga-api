@@ -47,8 +47,18 @@ Paste the following snippet into any HTML page. It renders a transparent search 
         <button class="k2-segment is-active" data-value="combined">Blandað</button>
         <button class="k2-segment" data-value="visual">Myndræn</button>
         <button class="k2-segment" data-value="text">Texti</button>
+        <button class="k2-segment" data-value="hybrid">Hybrid</button>
       </div>
-      <p class="k2-help">Veldu hvort leitin noti myndræna, texta- eða blandaða innslátt.</p>
+      <p class="k2-help">Veldu hvort leitin noti myndræna, texta-, blandaða eða hybrid (70% mynd, 30% texti) innslátt.</p>
+    </div>
+
+    <div class="k2-control-group k2-control-wide">
+      <label class="k2-checkbox-label">
+        <input type="checkbox" id="k2-ai-enhance" class="k2-checkbox" />
+        <span class="k2-checkbox-text">AI Enhance</span>
+        <span class="k2-checkbox-icon">✦</span>
+      </label>
+      <p class="k2-help">Þýðir leit úr íslensku yfir á ensku fyrir myndræna leit (bætir niðurstöður).</p>
     </div>
 
     <div class="k2-control-grid">
@@ -331,6 +341,53 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     box-shadow: 0 2px 8px var(--k2-accent-glow);
   }
 
+  /* Checkbox (AI Enhance) */
+  .k2-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    background: var(--k2-bg-input);
+    border: 1px solid var(--k2-border);
+    border-radius: var(--k2-radius);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .k2-checkbox-label:hover {
+    border-color: var(--k2-border-hover);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .k2-checkbox-label:has(.k2-checkbox:checked) {
+    border-color: var(--k2-accent);
+    background: rgba(147, 51, 234, 0.15);
+  }
+
+  .k2-checkbox {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--k2-accent);
+    cursor: pointer;
+  }
+
+  .k2-checkbox-text {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--k2-text);
+  }
+
+  .k2-checkbox-icon {
+    color: var(--k2-text-muted);
+    font-size: 12px;
+    transition: color 0.2s ease;
+  }
+
+  .k2-checkbox-label:has(.k2-checkbox:checked) .k2-checkbox-icon {
+    color: var(--k2-accent);
+  }
+
   /* Select Dropdown */
   .k2-select {
     width: 100%;
@@ -565,13 +622,15 @@ Paste the following snippet into any HTML page. It renders a transparent search 
   const limitValue = document.getElementById("k2-limit-value");
   const threshold = document.getElementById("k2-threshold");
   const thresholdValue = document.getElementById("k2-threshold-value");
+  const aiEnhance = document.getElementById("k2-ai-enhance");
 
   const params = {
     search_type: "combined",
     limit: Number(limit.value),
     threshold: Number(threshold.value),
     file_type: "image",
-    decade: ""
+    decade: "",
+    ai_enhance: false
   };
 
   function setStatus(msg, isError = false) {
@@ -643,6 +702,7 @@ Paste the following snippet into any HTML page. It renders a transparent search 
 
   function buildStatusSuffix() {
     const bits = [];
+    if (params.ai_enhance) bits.push("AI ✦");
     if (params.file_type) bits.push(params.file_type === "video" ? "Myndbönd" : "Myndir");
     if (params.decade) bits.push(params.decade);
     bits.push(`${params.limit} max`);
@@ -668,7 +728,8 @@ Paste the following snippet into any HTML page. It renders a transparent search 
         query: q,
         search_type: params.search_type,
         limit: String(params.limit),
-        threshold: String(params.threshold)
+        threshold: String(params.threshold),
+        ai_enhance: String(params.ai_enhance)
       });
 
       if (params.file_type) searchParams.set("file_type", params.file_type);
@@ -741,6 +802,10 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     params.decade = decade.value;
   });
 
+  aiEnhance.addEventListener("change", () => {
+    params.ai_enhance = aiEnhance.checked;
+  });
+
   limit.addEventListener("input", () => {
     params.limit = Number(limit.value);
     limitValue.textContent = params.limit;
@@ -764,4 +829,15 @@ Paste the following snippet into any HTML page. It renders a transparent search 
 
 ## API compatibility
 
-The embed calls the `GET /search` endpoint that wraps the `TextSearchRequest` model, so it understands the same query parameters (`query`, `search_type`, `limit`, `threshold`, `file_type`, `decade`). See `README.md` for more endpoint details.
+The embed calls the `GET /search` endpoint that wraps the `TextSearchRequest` model, so it understands the same query parameters (`query`, `search_type`, `limit`, `threshold`, `file_type`, `decade`, `ai_enhance`). See `README.md` for more endpoint details.
+
+### Search Types
+
+- **combined** (default): Uses combined image + text embeddings
+- **visual**: Uses only image/visual embeddings
+- **text**: Uses only text embeddings from descriptions/metadata
+- **hybrid**: Weighted search with 70% visual similarity + 30% text matching
+
+### AI Enhance
+
+When `ai_enhance=true`, the search query is translated from Icelandic to English before encoding for visual search. This improves results because CLIP models understand English better than Icelandic. For hybrid search, the original Icelandic query is still used for the text matching component.
