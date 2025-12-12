@@ -33,23 +33,32 @@ supabase_service: Optional[SupabaseSearchService] = None
 _supabase_init_attempted: bool = False
 
 
-def _get_supabase_url() -> Tuple[str, str, bool]:
-    """Return the Supabase URL, its source, and whether it is the default."""
+SUPABASE_KEY_ENV_VARS = [
+    "SUPABASE_KEY",  # existing default
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_API_KEY",
+    "SUPABASE_ANON_KEY",
+]
 
-    env_value = os.getenv("SUPABASE_URL")
-    if env_value:
-        return env_value, "SUPABASE_URL", False
-    return DEFAULT_SUPABASE_URL, "DEFAULT_SUPABASE_URL", True
 
+def _get_supabase_env() -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return Supabase URL and key using common env var names.
 
-def _get_supabase_key() -> Tuple[str, str, bool]:
-    """Return the Supabase key, its source, and whether it is the default."""
+    Returns:
+        tuple: (supabase_url, supabase_key, key_env_var_used)
+    """
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = None
+    key_source = None
 
-    for env_var in ("SUPABASE_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY"):
+    for env_var in SUPABASE_KEY_ENV_VARS:
         value = os.getenv(env_var)
         if value:
-            return value, env_var, False
-    return DEFAULT_SUPABASE_ANON_KEY, "DEFAULT_SUPABASE_ANON_KEY", True
+            supabase_key = value
+            key_source = env_var
+            break
+
+    return supabase_url, supabase_key, key_source
 
 
 def get_supabase_service() -> Optional[SupabaseSearchService]:
@@ -65,24 +74,37 @@ def get_supabase_service() -> Optional[SupabaseSearchService]:
         return supabase_service
 
     # Try to initialize if we haven't already or if env vars might now be available
-    supabase_url, supabase_url_source, url_is_default = _get_supabase_url()
-    supabase_key, supabase_key_source, key_is_default = _get_supabase_key()
+    supabase_url, supabase_key, key_source = _get_supabase_env()
 
-    try:
-        logger.info(
-            "Lazy-initializing Supabase service using %s (%s) and %s (%s)...",
-            supabase_url_source,
-            "default" if url_is_default else "env",
-            supabase_key_source,
-            "default" if key_is_default else "env"
-        )
-        supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
-        logger.info("Supabase service initialized successfully via lazy init!")
-        return supabase_service
-    except Exception as exc:
+    if supabase_url and supabase_key:
+        try:
+            logger.info(
+                "Lazy-initializing Supabase service using %s...",
+                key_source,
+            )
+            supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
+            logger.info("Supabase service initialized successfully via lazy init!")
+            return supabase_service
+        except Exception as exc:
+            logger.error("Failed to initialize Supabase service during lazy init: %s", exc)
+            return None
+    else:
         if not _supabase_init_attempted:
             _supabase_init_attempted = True
-        logger.error("Failed to initialize Supabase service during lazy init: %s", exc)
+            missing = []
+            if not supabase_url:
+                missing.append("SUPABASE_URL")
+            if not supabase_key:
+                missing.append(
+                    " or ".join(
+                        [SUPABASE_KEY_ENV_VARS[0], "fallbacks: " + ", ".join(SUPABASE_KEY_ENV_VARS[1:])]
+                    )
+                )
+            logger.warning(
+                "Cannot initialize Supabase service. Missing environment variables: %s. "
+                "Hint: Ensure these are set in your Railway service variables and redeploy.",
+                ", ".join(missing)
+            )
         return None
 
 @asynccontextmanager
@@ -102,16 +124,13 @@ async def lifespan(app: FastAPI):
     logger.info("CLIP model loaded successfully!")
 
     # Initialize Supabase service
-    supabase_url, supabase_url_source, url_is_default = _get_supabase_url()
-    supabase_key, supabase_key_source, key_is_default = _get_supabase_key()
+    supabase_url, supabase_key, key_source = _get_supabase_env()
 
     # Log environment variable status for debugging
     logger.info(
-        "Environment check - SUPABASE_URL: %s (%s), SUPABASE_KEY: %s (%s)",
-        supabase_url_source,
-        "default" if url_is_default else "env",
-        supabase_key_source,
-        "default" if key_is_default else "env",
+        "Environment check - SUPABASE_URL: %s, Supabase key source: %s",
+        "set" if supabase_url else "NOT SET",
+        key_source if supabase_key else "NOT SET",
     )
 
     try:
@@ -230,12 +249,9 @@ async def root():
 async def health_check():
     """Health check endpoint with detailed service status."""
     # Check if env vars are set (without revealing values)
-    supabase_url_set = bool(os.getenv("SUPABASE_URL"))
-    supabase_key_set = bool(
-        os.getenv("SUPABASE_KEY")
-        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_ANON_KEY")
-    )
+    supabase_url, supabase_key, key_source = _get_supabase_env()
+    supabase_url_set = bool(supabase_url)
+    supabase_key_set = bool(supabase_key)
 
     # Try to get or initialize Supabase service (enables lazy init on health check)
     db_service = get_supabase_service()
