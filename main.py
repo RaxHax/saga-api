@@ -41,15 +41,19 @@ SUPABASE_KEY_ENV_VARS = [
 ]
 
 
-def _get_supabase_env() -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Return Supabase URL and key using common env var names.
+def _get_supabase_env() -> Tuple[str, str, str, bool, str]:
+    """Return Supabase URL/key using env vars with sensible defaults.
 
     Returns:
-        tuple: (supabase_url, supabase_key, key_env_var_used)
+        tuple: (supabase_url, supabase_key, key_source, key_is_default, url_source)
     """
-    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_url_env = os.getenv("SUPABASE_URL")
+    supabase_url = supabase_url_env or DEFAULT_SUPABASE_URL
+    url_source = "SUPABASE_URL" if supabase_url_env else "DEFAULT_SUPABASE_URL"
+
     supabase_key = None
     key_source = None
+    key_is_default = False
 
     for env_var in SUPABASE_KEY_ENV_VARS:
         value = os.getenv(env_var)
@@ -58,7 +62,12 @@ def _get_supabase_env() -> Tuple[Optional[str], Optional[str], Optional[str]]:
             key_source = env_var
             break
 
-    return supabase_url, supabase_key, key_source
+    if not supabase_key:
+        supabase_key = DEFAULT_SUPABASE_ANON_KEY
+        key_source = "DEFAULT_SUPABASE_ANON_KEY"
+        key_is_default = True
+
+    return supabase_url, supabase_key, key_source, key_is_default, url_source
 
 
 def get_supabase_service() -> Optional[SupabaseSearchService]:
@@ -74,16 +83,21 @@ def get_supabase_service() -> Optional[SupabaseSearchService]:
         return supabase_service
 
     # Try to initialize if we haven't already or if env vars might now be available
-    supabase_url, supabase_key, key_source = _get_supabase_env()
+    supabase_url, supabase_key, key_source, key_is_default, url_source = _get_supabase_env()
 
     if supabase_url and supabase_key:
         try:
             logger.info(
-                "Lazy-initializing Supabase service using %s...",
+                "Lazy-initializing Supabase service using %s (URL source: %s)...",
                 key_source,
+                url_source,
             )
             supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
-            logger.info("Supabase service initialized successfully via lazy init!")
+            logger.info(
+                "Supabase service initialized successfully via lazy init using %s (%s)!",
+                key_source,
+                "default" if key_is_default else "env",
+            )
             return supabase_service
         except Exception as exc:
             logger.error("Failed to initialize Supabase service during lazy init: %s", exc)
@@ -124,20 +138,20 @@ async def lifespan(app: FastAPI):
     logger.info("CLIP model loaded successfully!")
 
     # Initialize Supabase service
-    supabase_url, supabase_key, key_source = _get_supabase_env()
+    supabase_url, supabase_key, key_source, key_is_default, url_source = _get_supabase_env()
 
     # Log environment variable status for debugging
     logger.info(
-        "Environment check - SUPABASE_URL: %s, Supabase key source: %s",
-        "set" if supabase_url else "NOT SET",
-        key_source if supabase_key else "NOT SET",
+        "Environment check - SUPABASE_URL source: %s, Supabase key source: %s",
+        url_source,
+        key_source,
     )
 
     try:
         supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
         logger.info(
             "Supabase service initialized using %s (%s)!",
-            supabase_key_source or "unknown key source",
+            key_source,
             "default" if key_is_default else "env",
         )
     except Exception as exc:
