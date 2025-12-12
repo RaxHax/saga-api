@@ -253,6 +253,64 @@ class HealthResponse(BaseModel):
     supabase_key_set: bool
 
 
+# --- Helper Functions ---
+
+def _merge_hybrid_results(
+    visual_results: List[dict],
+    text_results: List[dict],
+    visual_weight: float = 0.7,
+    text_weight: float = 0.3,
+    limit: int = 20,
+    threshold: float = 0.0
+) -> List[dict]:
+    """
+    Merge visual and text search results with weighted scoring.
+
+    Args:
+        visual_results: Results from visual/embedding search
+        text_results: Results from text search
+        visual_weight: Weight for visual similarity (default 0.7)
+        text_weight: Weight for text relevance (default 0.3)
+        limit: Maximum results to return
+        threshold: Minimum combined score threshold
+
+    Returns:
+        Merged and sorted results with combined scores
+    """
+    # Create lookup dictionaries by ID
+    visual_by_id = {r["id"]: r for r in visual_results}
+    text_by_id = {r["id"]: r for r in text_results}
+
+    # Get all unique IDs
+    all_ids = set(visual_by_id.keys()) | set(text_by_id.keys())
+
+    merged = []
+    for item_id in all_ids:
+        visual_item = visual_by_id.get(item_id)
+        text_item = text_by_id.get(item_id)
+
+        # Calculate weighted score
+        visual_score = visual_item["similarity_score"] if visual_item else 0.0
+        text_score = text_item["similarity_score"] if text_item else 0.0
+        combined_score = (visual_score * visual_weight) + (text_score * text_weight)
+
+        # Skip if below threshold
+        if combined_score < threshold:
+            continue
+
+        # Use the visual item as base (has more complete data), fallback to text item
+        base_item = visual_item or text_item
+        result = base_item.copy()
+        result["similarity_score"] = combined_score
+
+        merged.append(result)
+
+    # Sort by combined score descending
+    merged.sort(key=lambda x: x["similarity_score"], reverse=True)
+
+    return merged[:limit]
+
+
 # --- Endpoints ---
 
 @app.get("/", tags=["Info"])
@@ -359,19 +417,37 @@ async def search_by_text(
     # Search in Supabase
     try:
         if request.search_type == "hybrid":
-            # Use hybrid search with 70% visual, 30% text weights
-            # For hybrid, use original Icelandic query for text search component
-            results = await db_service.hybrid_search(
+            # Local hybrid search: 70% visual (translated), 30% text (original)
+            logger.info(f"Hybrid search: visual embedding from '{query_for_embedding}', text search from '{request.query}'")
+
+            # Get visual search results (using translated query embedding)
+            visual_results = await db_service.search_by_embedding(
                 embedding=query_embedding,
-                text_query=request.query,  # Original query for text matching
-                search_type="visual",  # Use visual embeddings for the vector part
-                limit=request.limit,
-                threshold=request.threshold,
-                vector_weight=0.7,
-                text_weight=0.3,
+                search_type="visual",
+                limit=request.limit * 2,  # Fetch more to allow merging
+                threshold=0.0,  # No threshold for component searches
                 file_type=request.file_type,
                 decade=request.decade
             )
+
+            # Get text search results (using original query)
+            text_results = await db_service.text_search(
+                text_query=request.query,
+                limit=request.limit * 2,
+                file_type=request.file_type,
+                decade=request.decade
+            )
+
+            # Combine results with 70/30 weighting
+            results = _merge_hybrid_results(
+                visual_results=visual_results,
+                text_results=text_results,
+                visual_weight=0.7,
+                text_weight=0.3,
+                limit=request.limit,
+                threshold=request.threshold
+            )
+            logger.info(f"Hybrid search merged: {len(visual_results)} visual + {len(text_results)} text -> {len(results)} results")
         else:
             results = await db_service.search_by_embedding(
                 embedding=query_embedding,

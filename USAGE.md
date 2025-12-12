@@ -24,6 +24,13 @@ Paste the following snippet into any HTML page. It renders a transparent search 
 
     <div class="k2-searchbar">
       <input id="k2-input" type="search" placeholder="Leita (t.d. „sólsetur yfir hafi")" autocomplete="off" />
+      <div class="k2-enhance-toggle" id="k2-enhance-wrapper" title="Þýðir íslensku yfir á ensku fyrir betri myndleit">
+        <label class="k2-toggle">
+          <input type="checkbox" id="k2-ai-enhance" />
+          <span class="k2-toggle-slider"></span>
+        </label>
+        <span class="k2-toggle-label">EN</span>
+      </div>
       <button id="k2-button">
         Leita
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -52,14 +59,6 @@ Paste the following snippet into any HTML page. It renders a transparent search 
       <p class="k2-help">Veldu hvort leitin noti myndræna, texta-, blandaða eða hybrid (70% mynd, 30% texti) innslátt.</p>
     </div>
 
-    <div class="k2-control-group k2-control-wide">
-      <label class="k2-checkbox-label">
-        <input type="checkbox" id="k2-ai-enhance" class="k2-checkbox" />
-        <span class="k2-checkbox-text">AI Enhance</span>
-        <span class="k2-checkbox-icon">✦</span>
-      </label>
-      <p class="k2-help">Þýðir leit úr íslensku yfir á ensku fyrir myndræna leit (bætir niðurstöður).</p>
-    </div>
 
     <div class="k2-control-grid">
       <div class="k2-control-group">
@@ -233,6 +232,86 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     transform: translateX(3px);
   }
 
+  /* AI Enhance Toggle */
+  .k2-enhance-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--k2-bg-input);
+    border: 1px solid var(--k2-border);
+    border-radius: var(--k2-radius);
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .k2-enhance-toggle:hover {
+    border-color: var(--k2-border-hover);
+  }
+
+  .k2-enhance-toggle:has(input:checked) {
+    border-color: var(--k2-accent);
+    background: rgba(147, 51, 234, 0.15);
+  }
+
+  .k2-toggle {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+  }
+
+  .k2-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .k2-toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    transition: 0.3s;
+  }
+
+  .k2-toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 14px;
+    width: 14px;
+    left: 3px;
+    bottom: 3px;
+    background: var(--k2-text-muted);
+    border-radius: 50%;
+    transition: 0.3s;
+  }
+
+  .k2-toggle input:checked + .k2-toggle-slider {
+    background: var(--k2-accent);
+  }
+
+  .k2-toggle input:checked + .k2-toggle-slider:before {
+    transform: translateX(16px);
+    background: white;
+  }
+
+  .k2-toggle-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--k2-text-muted);
+    letter-spacing: 0.05em;
+    transition: color 0.2s ease;
+  }
+
+  .k2-enhance-toggle:has(input:checked) .k2-toggle-label {
+    color: var(--k2-accent);
+  }
+
   .k2-hints {
     display: flex;
     flex-wrap: wrap;
@@ -339,53 +418,6 @@ Paste the following snippet into any HTML page. It renders a transparent search 
     background: var(--k2-accent);
     color: white;
     box-shadow: 0 2px 8px var(--k2-accent-glow);
-  }
-
-  /* Checkbox (AI Enhance) */
-  .k2-checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 18px;
-    background: var(--k2-bg-input);
-    border: 1px solid var(--k2-border);
-    border-radius: var(--k2-radius);
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-
-  .k2-checkbox-label:hover {
-    border-color: var(--k2-border-hover);
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .k2-checkbox-label:has(.k2-checkbox:checked) {
-    border-color: var(--k2-accent);
-    background: rgba(147, 51, 234, 0.15);
-  }
-
-  .k2-checkbox {
-    width: 20px;
-    height: 20px;
-    accent-color: var(--k2-accent);
-    cursor: pointer;
-  }
-
-  .k2-checkbox-text {
-    flex: 1;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--k2-text);
-  }
-
-  .k2-checkbox-icon {
-    color: var(--k2-text-muted);
-    font-size: 12px;
-    transition: color 0.2s ease;
-  }
-
-  .k2-checkbox-label:has(.k2-checkbox:checked) .k2-checkbox-icon {
-    color: var(--k2-accent);
   }
 
   /* Select Dropdown */
@@ -583,10 +615,20 @@ Paste the following snippet into any HTML page. It renders a transparent search 
       padding: 24px 16px;
     }
     .k2-searchbar {
-      flex-direction: column;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .k2-searchbar input {
+      flex: 1 1 100%;
+      order: 1;
+    }
+    .k2-enhance-toggle {
+      order: 2;
+      flex: 1;
     }
     .k2-searchbar button {
-      width: 100%;
+      order: 3;
+      flex: 1;
       justify-content: center;
     }
     .k2-title {
@@ -836,8 +878,18 @@ The embed calls the `GET /search` endpoint that wraps the `TextSearchRequest` mo
 - **combined** (default): Uses combined image + text embeddings
 - **visual**: Uses only image/visual embeddings
 - **text**: Uses only text embeddings from descriptions/metadata
-- **hybrid**: Weighted search with 70% visual similarity + 30% text matching
+- **hybrid**: Local hybrid search that combines:
+  - 70% visual similarity (uses CLIP embedding)
+  - 30% text relevance (searches descriptions, filenames, tags)
 
-### AI Enhance
+### AI Enhance (EN Toggle)
 
-When `ai_enhance=true`, the search query is translated from Icelandic to English before encoding for visual search. This improves results because CLIP models understand English better than Icelandic. For hybrid search, the original Icelandic query is still used for the text matching component.
+The "EN" toggle in the search bar enables translation from Icelandic to English before encoding for visual search. This improves results because CLIP models understand English better than Icelandic.
+
+**How it works with Hybrid search:**
+1. Your Icelandic query (e.g., "kaffi") is translated to English ("coffee")
+2. The translated query is used for the visual embedding search (70% weight)
+3. The original Icelandic query is used for text matching (30% weight)
+4. Results are merged and ranked by combined score
+
+This gives you the best of both worlds: semantically accurate visual matches via translation, plus exact text matches on Icelandic descriptions and metadata.
