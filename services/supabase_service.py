@@ -114,56 +114,56 @@ class SupabaseSearchService:
             logger.error(f"Search error: {e}")
             raise
 
-    async def hybrid_search(
+    async def text_search(
         self,
-        embedding: List[float],
         text_query: str,
-        search_type: str = "combined",
         limit: int = 20,
-        threshold: float = 0.0,
-        vector_weight: float = 0.7,
-        text_weight: float = 0.3,
         file_type: Optional[str] = None,
         decade: Optional[str] = None
     ) -> List[dict]:
         """
-        Hybrid search combining vector similarity and text search.
+        Full-text search on descriptions, tags, and filenames.
 
         Args:
-            embedding: Query embedding vector
             text_query: Text query for full-text search
-            search_type: Which embedding to search against
             limit: Maximum number of results
-            threshold: Minimum score threshold
-            vector_weight: Weight for vector similarity (0-1)
-            text_weight: Weight for text match (0-1)
             file_type: Filter by file type
             decade: Filter by decade
 
         Returns:
-            List of search results with combined scores
+            List of search results with text relevance scores
         """
         try:
-            response = self.client.rpc(
-                "hybrid_search_media",
-                {
-                    "query_embedding": embedding,
-                    "query_text": text_query,
-                    "search_type": search_type,
-                    "match_threshold": threshold,
-                    "match_count": limit,
-                    "vector_weight": vector_weight,
-                    "text_weight": text_weight,
-                    "file_type_filter": file_type,
-                    "decade_filter": decade
-                }
-            ).execute()
+            # Build query with text search on description, tags, filename
+            query = self.client.table("media_items").select("*")
+
+            # Apply filters
+            if file_type:
+                query = query.eq("file_type", file_type)
+            if decade:
+                query = query.eq("decade", decade)
+
+            # Use ilike for case-insensitive partial matching on multiple fields
+            # We search in description, original_filename, and tags
+            search_term = f"%{text_query}%"
+            query = query.or_(
+                f"description.ilike.{search_term},"
+                f"original_filename.ilike.{search_term},"
+                f"filename.ilike.{search_term},"
+                f"tags.cs.{{{text_query}}}"
+            )
+
+            query = query.limit(limit)
+            response = query.execute()
 
             if not response.data:
                 return []
 
             results = []
             for item in response.data:
+                # Calculate a simple text relevance score based on match quality
+                text_score = self._calculate_text_relevance(item, text_query)
+
                 result = {
                     "id": str(item.get("id", "")),
                     "filename": item.get("filename", ""),
@@ -178,7 +178,7 @@ class SupabaseSearchService:
                     "decade": item.get("decade"),
                     "duration_seconds": item.get("duration_seconds"),
                     "metadata": item.get("metadata"),
-                    "similarity_score": float(item.get("combined_score", item.get("similarity", 0))),
+                    "similarity_score": text_score,
                     "created_at": item.get("created_at"),
                     "updated_at": item.get("updated_at"),
                 }
@@ -188,11 +188,48 @@ class SupabaseSearchService:
 
                 results.append(result)
 
+            # Sort by text relevance score
+            results.sort(key=lambda x: x["similarity_score"], reverse=True)
             return results
 
         except Exception as e:
-            logger.error(f"Hybrid search error: {e}")
+            logger.error(f"Text search error: {e}")
             raise
+
+    def _calculate_text_relevance(self, item: dict, query: str) -> float:
+        """
+        Calculate text relevance score based on where and how the query matches.
+
+        Returns a score between 0 and 1.
+        """
+        query_lower = query.lower()
+        score = 0.0
+
+        # Check description (highest weight)
+        description = (item.get("description") or "").lower()
+        if query_lower in description:
+            # Exact match in description
+            if description == query_lower:
+                score += 0.5
+            elif description.startswith(query_lower) or description.endswith(query_lower):
+                score += 0.4
+            else:
+                score += 0.3
+
+        # Check filename
+        filename = (item.get("original_filename") or item.get("filename") or "").lower()
+        if query_lower in filename:
+            score += 0.25
+
+        # Check tags
+        tags = item.get("tags") or []
+        if isinstance(tags, list):
+            for tag in tags:
+                if query_lower in tag.lower():
+                    score += 0.25
+                    break
+
+        return min(score, 1.0)  # Cap at 1.0
 
     def test_connection(self) -> bool:
         """Test if Supabase connection is working."""
