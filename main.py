@@ -22,6 +22,11 @@ from services.supabase_service import SupabaseSearchService
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+DEFAULT_SUPABASE_URL = "https://aaxhvqyfqxdzljburnpy.supabase.co"
+DEFAULT_SUPABASE_ANON_KEY = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFheGh2cXlmcXhkemxqYnVybnB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU0NjY0NjIsImV4cCI6MjA4MTA0MjQ2Mn0.JokjOfcnyo45WkUOeie5PVGJPifAHMdBVH4pFwIl2ZE"
+)
+
 # Global services (initialized at startup)
 embedding_service: Optional[EmbeddingService] = None
 supabase_service: Optional[SupabaseSearchService] = None
@@ -85,7 +90,6 @@ def get_supabase_service() -> Optional[SupabaseSearchService]:
             return None
     else:
         if not _supabase_init_attempted:
-            # Log detailed info about what's missing (only once to avoid log spam)
             _supabase_init_attempted = True
             missing = []
             if not supabase_url:
@@ -129,25 +133,16 @@ async def lifespan(app: FastAPI):
         key_source if supabase_key else "NOT SET",
     )
 
-    if not supabase_url or not supabase_key:
-        missing = []
-        if not supabase_url:
-            missing.append("SUPABASE_URL")
-        if not supabase_key:
-            missing.append("SUPABASE_KEY")
-        logger.warning(
-            "Missing environment variables: %s - API will start in degraded mode. "
-            "Search will attempt lazy initialization on first request.",
-            ", ".join(missing)
+    try:
+        supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
+        logger.info(
+            "Supabase service initialized using %s (%s)!",
+            supabase_key_source or "unknown key source",
+            "default" if key_is_default else "env",
         )
+    except Exception as exc:
+        logger.error("Failed to initialize Supabase service: %s", exc)
         supabase_service = None
-    else:
-        try:
-            supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
-            logger.info("Supabase service initialized!")
-        except Exception as exc:
-            logger.error("Failed to initialize Supabase service: %s", exc)
-            supabase_service = None
 
     logger.info("Saga Search API ready!")
 
