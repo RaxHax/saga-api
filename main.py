@@ -25,6 +25,49 @@ logger = logging.getLogger(__name__)
 # Global services (initialized at startup)
 embedding_service: Optional[EmbeddingService] = None
 supabase_service: Optional[SupabaseSearchService] = None
+_supabase_init_attempted: bool = False
+
+
+def get_supabase_service() -> Optional[SupabaseSearchService]:
+    """
+    Get or lazily initialize the Supabase service.
+
+    This handles cases where environment variables become available after startup,
+    or where there was a temporary issue during initial startup.
+    """
+    global supabase_service, _supabase_init_attempted
+
+    if supabase_service is not None:
+        return supabase_service
+
+    # Try to initialize if we haven't already or if env vars might now be available
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_KEY")
+
+    if supabase_url and supabase_key:
+        try:
+            logger.info("Lazy-initializing Supabase service...")
+            supabase_service = SupabaseSearchService(url=supabase_url, key=supabase_key)
+            logger.info("Supabase service initialized successfully via lazy init!")
+            return supabase_service
+        except Exception as exc:
+            logger.error("Failed to initialize Supabase service during lazy init: %s", exc)
+            return None
+    else:
+        if not _supabase_init_attempted:
+            # Log detailed info about what's missing (only once to avoid log spam)
+            _supabase_init_attempted = True
+            missing = []
+            if not supabase_url:
+                missing.append("SUPABASE_URL")
+            if not supabase_key:
+                missing.append("SUPABASE_KEY")
+            logger.warning(
+                "Cannot initialize Supabase service. Missing environment variables: %s. "
+                "Hint: Ensure these are set in your Railway service variables and redeploy.",
+                ", ".join(missing)
+            )
+        return None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -46,8 +89,24 @@ async def lifespan(app: FastAPI):
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_KEY")  # Can be anon or service key
 
+    # Log environment variable status for debugging
+    logger.info(
+        "Environment check - SUPABASE_URL: %s, SUPABASE_KEY: %s",
+        "set" if supabase_url else "NOT SET",
+        "set" if supabase_key else "NOT SET"
+    )
+
     if not supabase_url or not supabase_key:
-        logger.warning("SUPABASE_URL and SUPABASE_KEY not set - API will start in degraded mode")
+        missing = []
+        if not supabase_url:
+            missing.append("SUPABASE_URL")
+        if not supabase_key:
+            missing.append("SUPABASE_KEY")
+        logger.warning(
+            "Missing environment variables: %s - API will start in degraded mode. "
+            "Search will attempt lazy initialization on first request.",
+            ", ".join(missing)
+        )
         supabase_service = None
     else:
         try:
@@ -141,6 +200,8 @@ class HealthResponse(BaseModel):
     model_loaded: bool
     model_name: str
     supabase_connected: bool
+    supabase_url_set: bool
+    supabase_key_set: bool
 
 
 # --- Endpoints ---
@@ -158,12 +219,21 @@ async def root():
 
 @app.get("/health", response_model=HealthResponse, tags=["Info"])
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint with detailed service status."""
+    # Check if env vars are set (without revealing values)
+    supabase_url_set = bool(os.getenv("SUPABASE_URL"))
+    supabase_key_set = bool(os.getenv("SUPABASE_KEY"))
+
+    # Try to get or initialize Supabase service (enables lazy init on health check)
+    db_service = get_supabase_service()
+
     return HealthResponse(
         status="healthy",
         model_loaded=embedding_service is not None and embedding_service.model is not None,
         model_name=embedding_service.model_name if embedding_service else "not loaded",
-        supabase_connected=supabase_service is not None
+        supabase_connected=db_service is not None,
+        supabase_url_set=supabase_url_set,
+        supabase_key_set=supabase_key_set
     )
 
 
@@ -187,10 +257,13 @@ async def search_by_text(
             status_code=503,
             detail="Embedding service not initialized. Check CLIP model configuration."
         )
-    if not supabase_service:
+
+    # Try to get or initialize Supabase service
+    db_service = get_supabase_service()
+    if not db_service:
         raise HTTPException(
             status_code=503,
-            detail="Database service not initialized. Check SUPABASE_URL and SUPABASE_KEY environment variables."
+            detail="Database service not initialized. Check SUPABASE_URL and SUPABASE_KEY environment variables and redeploy."
         )
 
     # Validate search type
@@ -214,7 +287,7 @@ async def search_by_text(
 
     # Search in Supabase
     try:
-        results = await supabase_service.search_by_embedding(
+        results = await db_service.search_by_embedding(
             embedding=query_embedding,
             search_type=request.search_type,
             limit=request.limit,
@@ -284,10 +357,13 @@ async def search_by_image(
             status_code=503,
             detail="Embedding service not initialized. Check CLIP model configuration."
         )
-    if not supabase_service:
+
+    # Try to get or initialize Supabase service
+    db_service = get_supabase_service()
+    if not db_service:
         raise HTTPException(
             status_code=503,
-            detail="Database service not initialized. Check SUPABASE_URL and SUPABASE_KEY environment variables."
+            detail="Database service not initialized. Check SUPABASE_URL and SUPABASE_KEY environment variables and redeploy."
         )
 
     # Validate search type
@@ -321,7 +397,7 @@ async def search_by_image(
 
     # Search in Supabase
     try:
-        results = await supabase_service.search_by_embedding(
+        results = await db_service.search_by_embedding(
             embedding=query_embedding,
             search_type=search_type,
             limit=limit,
