@@ -5,6 +5,7 @@ Handles searching media items by embedding similarity.
 
 import os
 import logging
+import re
 from typing import List, Optional
 
 from supabase import create_client, Client
@@ -134,6 +135,8 @@ class SupabaseSearchService:
             List of search results with text relevance scores
         """
         try:
+            keywords = self._extract_keywords(text_query)
+
             # Build query with text search on description, tags, filename
             query = self.client.table("media_items").select("*")
 
@@ -144,14 +147,19 @@ class SupabaseSearchService:
                 query = query.eq("decade", decade)
 
             # Use ilike for case-insensitive partial matching on multiple fields
-            # We search in description, original_filename, and tags
+            # We search in description, original_filename, filename, and look for keywords in tags
             search_term = f"%{text_query}%"
-            query = query.or_(
-                f"description.ilike.{search_term},"
-                f"original_filename.ilike.{search_term},"
-                f"filename.ilike.{search_term},"
-                f"tags.cs.{{{text_query}}}"
-            )
+            or_conditions = [
+                f"description.ilike.{search_term}",
+                f"original_filename.ilike.{search_term}",
+                f"filename.ilike.{search_term}"
+            ]
+
+            # Prioritize exact keyword matches in tags by adding contains filters
+            for keyword in keywords:
+                or_conditions.append(f"tags.cs.{{{keyword}}}")
+
+            query = query.or_(",".join(or_conditions))
 
             query = query.limit(limit)
             response = query.execute()
@@ -162,7 +170,7 @@ class SupabaseSearchService:
             results = []
             for item in response.data:
                 # Calculate a simple text relevance score based on match quality
-                text_score = self._calculate_text_relevance(item, text_query)
+                text_score = self._calculate_text_relevance(item, text_query, keywords)
 
                 result = {
                     "id": str(item.get("id", "")),
@@ -196,14 +204,26 @@ class SupabaseSearchService:
             logger.error(f"Text search error: {e}")
             raise
 
-    def _calculate_text_relevance(self, item: dict, query: str) -> float:
+    def _extract_keywords(self, query: str) -> List[str]:
+        """
+        Extract individual keywords from a query string.
+
+        Supports comma- or whitespace-separated keywords. Falls back to the
+        full query if no separators are present.
+        """
+        keywords = [kw.strip() for kw in re.split(r"[\s,]+", query) if kw.strip()]
+        return keywords or [query.strip()]
+
+    def _calculate_text_relevance(self, item: dict, query: str, keywords: List[str]) -> float:
         """
         Calculate text relevance score based on where and how the query matches.
 
         Returns a score between 0 and 1.
         """
         query_lower = query.lower()
+        keyword_set = {kw.lower() for kw in keywords if kw}
         score = 0.0
+        exact_keyword_match = False
 
         # Check description (highest weight)
         description = (item.get("description") or "").lower()
@@ -225,9 +245,19 @@ class SupabaseSearchService:
         tags = item.get("tags") or []
         if isinstance(tags, list):
             for tag in tags:
-                if query_lower in tag.lower():
-                    score += 0.25
+                tag_lower = tag.lower()
+                if tag_lower in keyword_set:
+                    # Exact keyword match in tags gets highest priority
+                    score += 0.7
+                    exact_keyword_match = True
                     break
+                if any(kw in tag_lower for kw in keyword_set):
+                    score += 0.3
+                    break
+
+        if exact_keyword_match:
+            # Nudge exact keyword matches to the top, capped at 1.0
+            score = min(score + 0.2, 1.0)
 
         return min(score, 1.0)  # Cap at 1.0
 
